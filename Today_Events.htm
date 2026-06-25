@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Frameset//EN" "http://www.w3.org/TR/html4/frameset.dtd">
+<html lang="en">
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+</head>
+
+<script>
+async function displayTodayEvents() {
+    const fileUrl = 'calender.ics'; 
+    const displays = document.querySelectorAll('.calendar-display');
+
+    try {
+        const response = await fetch(fileUrl);
+        if (!response.ok) throw new Error("File not found");
+        const text = await response.text();
+
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1; // 1-12
+        const day = now.getDate();
+        
+        const todayStr = `${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}`;
+
+        // Split by event, but filter out empty strings
+        const events = text.split("BEGIN:VEVENT").filter(e => e.includes("END:VEVENT"));
+        let foundTitles = [];
+
+        for (let event of events) {
+            const summaryMatch = event.match(/SUMMARY:(.*)/);
+            if (!summaryMatch) continue;
+
+            const summary = summaryMatch[1].trim();
+            const startMatch = event.match(/DTSTART;VALUE=DATE:(\d{8})/);
+            const rruleMatch = event.match(/RRULE:(.*)/);
+
+            if (startMatch) {
+                const startDate = startMatch[1];
+                let isToday = (startDate === todayStr);
+
+                // If not an exact date match, check the Recurrence Rule
+                if (!isToday && rruleMatch) {
+                    const rrule = rruleMatch[1];
+                    
+                    if (rrule.includes("FREQ=YEARLY")) {
+                        const byMonthMatch = rrule.match(/BYMONTH=(\d+)/);
+                        const byMonthDayMatch = rrule.match(/BYMONTHDAY=(\d+)/);
+                        const byDayMatch = rrule.match(/BYDAY=([^; \n\r]+)/);
+
+                        const targetMonth = byMonthMatch ? parseInt(byMonthMatch[1]) : null;
+
+                        // Only proceed if we are in the correct month
+                        if (targetMonth === month) {
+                            
+                            // Check for specific Day of Month (e.g., BYMONTHDAY=5)
+                            if (byMonthDayMatch) {
+                                if (parseInt(byMonthDayMatch[1]) === day) {
+                                    isToday = true;
+                                }
+                            } 
+                            // Check for Day of Week pattern (e.g., BYDAY=1SU)
+                            else if (byDayMatch) {
+                                if (matchesWeekdayPattern(now, byDayMatch[1])) {
+                                    isToday = true;
+                                }
+                            }
+                            // Fallback: If RRULE exists but no specific day/weekday is set, 
+                            // use the day from the original DTSTART
+                            else if (startDate.substring(6, 8) === String(day).padStart(2, '0')) {
+                                isToday = true;
+                            }
+                        }
+                    }
+                }
+
+                if (isToday) {
+                    foundTitles.push(summary);
+                }
+            }
+        }
+
+        let displayText = "Not a themed day in my list - Click for list";
+        if (foundTitles.length > 0) {
+            // Remove duplicates and join
+            displayText = [...new Set(foundTitles)].join(' & ');
+        }
+
+        displays.forEach(el => el.innerText = displayText);
+
+    } catch (err) {
+        console.error("ICS Error:", err);
+        displays.forEach(el => el.innerText = "Error loading calendar.");
+    }
+}
+
+/**
+ * Validates if the current date matches an ICS day pattern (1SU, 2MO, -1FR, etc.)
+ */
+function matchesWeekdayPattern(date, pattern) {
+    const days = { 'SU': 0, 'MO': 1, 'TU': 2, 'WE': 3, 'TH': 4, 'FR': 5, 'SA': 6 };
+    const dayStr = pattern.slice(-2); 
+    const occurrence = parseInt(pattern.slice(0, -2));
+
+    if (date.getDay() !== days[dayStr]) return false;
+    if (isNaN(occurrence)) return true; // Matches every instance of that day in the month
+
+    const tempDate = new Date(date.getTime());
+    let count = 0;
+    
+    if (occurrence > 0) {
+        // From start of month
+        for (let i = 1; i <= date.getDate(); i++) {
+            tempDate.setDate(i);
+            if (tempDate.getDay() === days[dayStr]) count++;
+        }
+        return count === occurrence;
+    } else {
+        // From end of month (e.g., -1 is Last)
+        const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+        for (let i = date.getDate(); i <= lastDay; i++) {
+            tempDate.setDate(i);
+            if (tempDate.getDay() === days[dayStr]) count++;
+        }
+        return count === 1;
+    }
+}
+
+window.addEventListener('DOMContentLoaded', displayTodayEvents);
+ </script>
+
+
+</body>
+
+		Today is: <span class="calendar-display"></span>
+
+	
+	
+</body>
+</html>
